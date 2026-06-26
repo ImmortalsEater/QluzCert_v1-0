@@ -1,0 +1,6 @@
+Django==5.2.15
+pandas
+google-api-python-client
+google-auth
+google-auth-httplib2
+openpyxl

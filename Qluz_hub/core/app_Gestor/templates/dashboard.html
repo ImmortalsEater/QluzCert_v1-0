@@ -1,0 +1,212 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QCert Manager</title>
+    <!-- Ícones do Tabler -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+    <!-- Seu CSS customizado -->
+    <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-txt">✦ QCERT MANAGER</div>
+      <div class="logo-sub">Gestão de Certificados Digitais</div>
+    </div>
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
+    <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
+    <div class="nav-section">Operacional</div>
+    <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+    <div class="nav-item" onclick="nav('triagem')"><i class="ti ti-route"></i>Triagem de Validação</div>
+    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    <div class="nav-section">Configurações</div>
+    <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
+    <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
+  </div>
+
+  <div id="main">
+    <div class="topbar">
+      <span class="topbar-title" id="page-title">Dashboard</span>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+    <div id="content">
+
+      <!-- DASHBOARD -->
+      <div id="view-dashboard" class="view active">
+        <div class="metrics" id="dashboard-metrics"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="table-wrap">
+            <div class="table-header"><h3><i class="ti ti-bell" style="color:var(--danger);margin-right:6px"></i>Alertas de Vencimento</h3></div>
+            <div style="padding:12px" id="dashboard-alerts"></div>
+          </div>
+          <div class="table-wrap">
+            <div class="table-header"><h3><i class="ti ti-clock" style="color:var(--accent);margin-right:6px"></i>Últimos Atendimentos</h3></div>
+            <div style="padding:0" id="dashboard-recent"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLIENTES -->
+      <div id="view-clientes" class="view">
+        <div class="section-actions">
+          <div class="search-box"><i class="ti ti-search"></i><input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ..." oninput="renderClientes()"></div>
+          <select id="filter-status" onchange="renderClientes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+            <option value="">Todos os status</option>
+            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+          </select>
+          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Cliente</button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
+            <div class="column-selector" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">
+              {% for col in google_columns %}
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="{{ col.class }}" checked> {{ col.label }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          <table class="google-drive-table">
+            <thead><tr>
+              {% for col in google_columns %}<th class="{{ col.class }}">{{ col.label }}</th>{% endfor %}
+              <th>Ações</th>
+            </tr></thead>
+            <tbody>
+              {% if google_rows %}
+                {% for row in google_rows %}
+                  <tr>
+                    {% for cell in row.cells %}
+                      <td class="{{ cell.class }}">{{ cell.value }}</td>
+                    {% endfor %}
+                    <td><a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a></td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                  <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
+            <tbody id="clientes-tbody"></tbody>
+          </table>
+          <div id="clientes-empty" class="empty-state" style="display:none"><i class="ti ti-users"></i><p>Nenhum cliente encontrado.</p></div>
+        </div>
+      </div>
+
+      <!-- FUNIL KANBAN -->
+      <div id="view-funil" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Lead</button>
+          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste mentalmente os cards ou clique para editar o status</span>
+        </div>
+        <div class="kanban" id="kanban-board"></div>
+      </div>
+
+      <!-- RENOVAÇÕES -->
+      <div id="view-renovacoes" class="view">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-circle"></i> Vencidos ou Urgentes (&lt;30 dias)</h3>
+            <div class="alert-list" id="ren-urgente"></div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--warn)"><i class="ti ti-clock"></i> Vencendo em 30–90 dias</h3>
+            <div class="alert-list" id="ren-normal"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRIAGEM -->
+      <div id="view-triagem" class="view">
+        <div style="max-width:520px">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Use este guia para determinar o tipo de validação adequado para o cliente.</p>
+          <div class="triagem-card">
+            <div id="triagem-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARCEIROS -->
+      <div id="view-parceiros" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('parceiro')"><i class="ti ti-plus"></i>Novo Parceiro</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
+            <tbody id="parceiros-tbody"></tbody>
+          </table>
+          <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
+        </div>
+      </div>
+
+      <!-- TABELA DE PREÇOS -->
+      <div id="view-tabela" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('preco')"><i class="ti ti-plus"></i>Novo Item</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
+            <tbody id="tabela-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Botão que puxa os dados do Drive -->
+<a href="{% url 'sincronizar_drive' %}" class="btn btn-primary">
+    <i class="ti ti-refresh"></i> Sincronizar com Planilha do Drive
+</a>
+
+<a href="{% url 'sincronizar_drive' %}" class="btn btn-primary">
+    🔄 Sincronizar com o Google Drive
+</a>
+
+<!-- Área para exibir mensagens de sucesso ou erro do Django -->
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+{% endif %}
+
+<!-- MODAIS -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+
+<!-- MODAL DETALHE CLIENTE -->
+<div class="modal-overlay" id="detail-overlay" onclick="closeDetail(event)">
+  <div class="modal" id="detail-box" style="max-width:780px"></div>
+</div>
+
+<script src="{% static 'js/cert_manager.js' %}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.column-toggle').forEach(function(toggle) {
+      toggle.addEventListener('change', function() {
+        var col = this.dataset.col;
+        var show = this.checked;
+        document.querySelectorAll('.' + col).forEach(function(cell) {
+          cell.style.display = show ? '' : 'none';
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

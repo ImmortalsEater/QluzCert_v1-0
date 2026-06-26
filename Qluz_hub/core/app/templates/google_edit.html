@@ -1,0 +1,31 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editar linha da planilha</title>
+  <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+</head>
+<body>
+  <div style="max-width:900px;margin:40px auto;padding:20px;background:#fff;border:1px solid #ddd;border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.05);">
+    <h1 style="margin-bottom:20px;font-size:22px;">Editar linha da planilha do Google Drive</h1>
+    <form method="post" style="display:grid;gap:16px;">
+      {% csrf_token %}
+      <label style="display:block;font-size:14px;">Cliente<br><input name="cliente" value="{{ registro.cliente }}" style="width:100%;padding:10px;border:1px solid #ccd; border-radius:8px"></label>
+      <label style="display:block;font-size:14px;">E-mail<br><input name="email" value="{{ registro.email }}" style="width:100%;padding:10px;border:1px solid #ccd; border-radius:8px"></label>
+      <label style="display:block;font-size:14px;">Valor Comissão<br><input name="valor_comissao" value="{{ registro.valor_comissao|default_if_none:"" }}" style="width:100%;padding:10px;border:1px solid #ccd; border-radius:8px"></label>
+      <label style="display:block;font-size:14px;">Pago Comissão<br>
+        <select name="pago_comissao" style="width:100%;padding:10px;border:1px solid #ccd; border-radius:8px">
+          <option value="Sim" {% if registro.pago_comissao %}selected{% endif %}>Sim</option>
+          <option value="Não" {% if not registro.pago_comissao %}selected{% endif %}>Não</option>
+        </select>
+      </label>
+      <div style="display:flex;gap:12px;align-items:center">
+        <button type="submit" class="btn btn-primary">Salvar alterações</button>
+        <a href="{% url 'dashboard' %}" class="btn" style="text-decoration:none;">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

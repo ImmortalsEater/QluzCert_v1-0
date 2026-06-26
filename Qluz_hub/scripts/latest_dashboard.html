@@ -1,0 +1,702 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QCert Manager</title>
+    <!-- Ícones do Tabler -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+    <!-- Seu CSS customizado -->
+    <link rel="stylesheet" href="/static/css/cert_manager.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-txt">✦ QCERT MANAGER</div>
+      <div class="logo-sub">Gestão de Certificados Digitais</div>
+    </div>
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
+    <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
+    <div class="nav-section">Operacional</div>
+    <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+    <div class="nav-item" onclick="nav('triagem')"><i class="ti ti-route"></i>Triagem de Validação</div>
+    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    <div class="nav-section">Configurações</div>
+    <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
+    <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
+  </div>
+
+  <div id="main">
+    <div class="topbar">
+      <span class="topbar-title" id="page-title">Dashboard</span>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+    <div id="content">
+
+      <!-- DASHBOARD -->
+      <div id="view-dashboard" class="view active">
+        <div class="metrics" id="dashboard-metrics"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="table-wrap">
+            <div class="table-header"><h3><i class="ti ti-bell" style="color:var(--danger);margin-right:6px"></i>Alertas de Vencimento</h3></div>
+            <div style="padding:12px" id="dashboard-alerts"></div>
+          </div>
+          <div class="table-wrap">
+            <div class="table-header"><h3><i class="ti ti-clock" style="color:var(--accent);margin-right:6px"></i>Últimos Atendimentos</h3></div>
+            <div style="padding:0" id="dashboard-recent"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLIENTES -->
+      <div id="view-clientes" class="view">
+        <div class="section-actions">
+          <div class="search-box"><i class="ti ti-search"></i><input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ..." oninput="renderClientes()"></div>
+          <select id="filter-status" onchange="renderClientes()" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+            <option value="">Todos os status</option>
+            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+          </select>
+          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Cliente</button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
+            <div class="column-selector" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-data-venda" checked> Data da Venda</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-contador-parceiro" checked> Contador/Parceiro</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-contador-contabilidade" checked> Contador/Contabilidade</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-telefone1" checked> Telefone</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-cliente" checked> Cliente</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-cpf-cnpj" checked> CPF/CNPJ</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-email" checked> email</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-telefone2" checked> Telefone2</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-tipo-certificado" checked> Tipo de Certificado</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-valor-venda" checked> Valor da Venda (R$)</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-percentual" checked> Percentual de Comissão (%)</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-valor-comissao" checked> Valor da Comissão (R$)</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-pago-comissao" checked> Pago_Comissao</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-chave-pix" checked> Chave PIX</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-data-vencimento" checked> Data de Vencimento</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-pago-venda" checked> Pago_Venda</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-forma-pagamento" checked> Forma de pagamento</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-banco" checked> Banco</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-cert-feito" checked> Certfificado Feito</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-venda" checked> Venda</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-custo-cert" checked> Custo do Certificado</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-valor-liquido" checked> Valor Liquido</label>
+              
+                <label style="font-size:13px"><input type="checkbox" class="column-toggle" data-col="col-data-registro" checked> Importado em</label>
+              
+            </div>
+          </div>
+          <table class="google-drive-table">
+            <thead><tr>
+              <th class="col-data-venda">Data da Venda</th><th class="col-contador-parceiro">Contador/Parceiro</th><th class="col-contador-contabilidade">Contador/Contabilidade</th><th class="col-telefone1">Telefone</th><th class="col-cliente">Cliente</th><th class="col-cpf-cnpj">CPF/CNPJ</th><th class="col-email">email</th><th class="col-telefone2">Telefone2</th><th class="col-tipo-certificado">Tipo de Certificado</th><th class="col-valor-venda">Valor da Venda (R$)</th><th class="col-percentual">Percentual de Comissão (%)</th><th class="col-valor-comissao">Valor da Comissão (R$)</th><th class="col-pago-comissao">Pago_Comissao</th><th class="col-chave-pix">Chave PIX</th><th class="col-data-vencimento">Data de Vencimento</th><th class="col-pago-venda">Pago_Venda</th><th class="col-forma-pagamento">Forma de pagamento</th><th class="col-banco">Banco</th><th class="col-cert-feito">Certfificado Feito</th><th class="col-venda">Venda</th><th class="col-custo-cert">Custo do Certificado</th><th class="col-valor-liquido">Valor Liquido</th><th class="col-data-registro">Importado em</th>
+              <th>Ações</th>
+            </tr></thead>
+            <tbody>
+              
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">15/06/2026</td>
+                    
+                      <td class="col-contador-parceiro">Contador Anônimo</td>
+                    
+                      <td class="col-contador-contabilidade">Teste Incompleto</td>
+                    
+                      <td class="col-telefone1"></td>
+                    
+                      <td class="col-cliente">Empresa Teste Limite</td>
+                    
+                      <td class="col-cpf-cnpj">00.000.000/0001-00</td>
+                    
+                      <td class="col-email">teste@erro.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CPF A1</td>
+                    
+                      <td class="col-valor-venda">150,00</td>
+                    
+                      <td class="col-percentual">0,00</td>
+                    
+                      <td class="col-valor-comissao">0,00</td>
+                    
+                      <td class="col-pago-comissao">Não</td>
+                    
+                      <td class="col-chave-pix"></td>
+                    
+                      <td class="col-data-vencimento">25/06/2026</td>
+                    
+                      <td class="col-pago-venda">Não</td>
+                    
+                      <td class="col-forma-pagamento">Pix</td>
+                    
+                      <td class="col-banco">Cora</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Venda Direta</td>
+                    
+                      <td class="col-custo-cert">50,00</td>
+                    
+                      <td class="col-valor-liquido">100,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/9/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">14/06/2026</td>
+                    
+                      <td class="col-contador-parceiro">Fernanda Lima</td>
+                    
+                      <td class="col-contador-contabilidade">Lima Consultoria</td>
+                    
+                      <td class="col-telefone1">(85) 97777-0004</td>
+                    
+                      <td class="col-cliente">Juliana Costa Ramos</td>
+                    
+                      <td class="col-cpf-cnpj">111.222.333-44</td>
+                    
+                      <td class="col-email">juliana.ramos@outlook.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CPF A3 (Token)</td>
+                    
+                      <td class="col-valor-venda">250,00</td>
+                    
+                      <td class="col-percentual">20,00</td>
+                    
+                      <td class="col-valor-comissao">50,00</td>
+                    
+                      <td class="col-pago-comissao">Sim</td>
+                    
+                      <td class="col-chave-pix">fernanda@pix.com</td>
+                    
+                      <td class="col-data-vencimento">24/06/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Boleto</td>
+                    
+                      <td class="col-banco">Inter</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Parceria</td>
+                    
+                      <td class="col-custo-cert">90,00</td>
+                    
+                      <td class="col-valor-liquido">160,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/8/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">12/06/2026</td>
+                    
+                      <td class="col-contador-parceiro">Marcos Souza</td>
+                    
+                      <td class="col-contador-contabilidade">Souza &amp; Associados</td>
+                    
+                      <td class="col-telefone1">(71) 97777-0003</td>
+                    
+                      <td class="col-cliente">Clínica Sorriso Perfeito</td>
+                    
+                      <td class="col-cpf-cnpj">45.678.912/0001-33</td>
+                    
+                      <td class="col-email">contato@sorrisoperfeito.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CNPJ A1</td>
+                    
+                      <td class="col-valor-venda">300,00</td>
+                    
+                      <td class="col-percentual">15,00</td>
+                    
+                      <td class="col-valor-comissao">45,00</td>
+                    
+                      <td class="col-pago-comissao">Sim</td>
+                    
+                      <td class="col-chave-pix">marcos@pix.com</td>
+                    
+                      <td class="col-data-vencimento">22/06/2026</td>
+                    
+                      <td class="col-pago-venda">Não</td>
+                    
+                      <td class="col-forma-pagamento">Cartão</td>
+                    
+                      <td class="col-banco">Santander</td>
+                    
+                      <td class="col-cert-feito">Não</td>
+                    
+                      <td class="col-venda">Venda Direta</td>
+                    
+                      <td class="col-custo-cert">100,00</td>
+                    
+                      <td class="col-valor-liquido">200,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/7/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">11/06/2026</td>
+                    
+                      <td class="col-contador-parceiro">Clara Mendes</td>
+                    
+                      <td class="col-contador-contabilidade">Mendes Auditoria</td>
+                    
+                      <td class="col-telefone1">(21) 97777-0002</td>
+                    
+                      <td class="col-cliente">Carlos Eduardo - ME</td>
+                    
+                      <td class="col-cpf-cnpj">98.765.432/0001-99</td>
+                    
+                      <td class="col-email">carlos.me@gmail.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CPF A1</td>
+                    
+                      <td class="col-valor-venda">200,00</td>
+                    
+                      <td class="col-percentual">20,00</td>
+                    
+                      <td class="col-valor-comissao">40,00</td>
+                    
+                      <td class="col-pago-comissao">Não</td>
+                    
+                      <td class="col-chave-pix">clara@mendes.com.br</td>
+                    
+                      <td class="col-data-vencimento">21/06/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Pix</td>
+                    
+                      <td class="col-banco">Bradesco</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Parceria</td>
+                    
+                      <td class="col-custo-cert">80,00</td>
+                    
+                      <td class="col-valor-liquido">120,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/6/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">10/06/2026</td>
+                    
+                      <td class="col-contador-parceiro">Roberto Alencar</td>
+                    
+                      <td class="col-contador-contabilidade">Alencar Contabilidade</td>
+                    
+                      <td class="col-telefone1">(11) 97777-0001</td>
+                    
+                      <td class="col-cliente">Restaurante Sabor Local LTDA</td>
+                    
+                      <td class="col-cpf-cnpj">12.345.678/0001-00</td>
+                    
+                      <td class="col-email">financeiro@saborlocal.com.br</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CNPJ A3 (Nuven)</td>
+                    
+                      <td class="col-valor-venda">400,00</td>
+                    
+                      <td class="col-percentual">15,00</td>
+                    
+                      <td class="col-valor-comissao">60,00</td>
+                    
+                      <td class="col-pago-comissao">Sim</td>
+                    
+                      <td class="col-chave-pix">roberto@pix.com</td>
+                    
+                      <td class="col-data-vencimento">20/06/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Boleto</td>
+                    
+                      <td class="col-banco">Itaú</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Venda Direta</td>
+                    
+                      <td class="col-custo-cert">150,00</td>
+                    
+                      <td class="col-valor-liquido">250,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/5/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">18/03/2026</td>
+                    
+                      <td class="col-contador-parceiro">Fernanda Lima</td>
+                    
+                      <td class="col-contador-contabilidade">Lima Consultoria</td>
+                    
+                      <td class="col-telefone1">(85) 98888-8888</td>
+                    
+                      <td class="col-cliente">Marta Doces Gourmet</td>
+                    
+                      <td class="col-cpf-cnpj">11.222.333/0001-44</td>
+                    
+                      <td class="col-email">fernanda@limaconsult.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CPF A3</td>
+                    
+                      <td class="col-valor-venda">250,00</td>
+                    
+                      <td class="col-percentual">0,20</td>
+                    
+                      <td class="col-valor-comissao">50,00</td>
+                    
+                      <td class="col-pago-comissao">Não</td>
+                    
+                      <td class="col-chave-pix">fernanda@pix.com</td>
+                    
+                      <td class="col-data-vencimento">28/03/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Pix</td>
+                    
+                      <td class="col-banco">Nubank</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Parceria</td>
+                    
+                      <td class="col-custo-cert">90,00</td>
+                    
+                      <td class="col-valor-liquido">160,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/4/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">15/03/2026</td>
+                    
+                      <td class="col-contador-parceiro">Marcos Souza</td>
+                    
+                      <td class="col-contador-contabilidade">M&amp;M Associados</td>
+                    
+                      <td class="col-telefone1">(21) 98888-6666</td>
+                    
+                      <td class="col-cliente">Clínica Saúde Total</td>
+                    
+                      <td class="col-cpf-cnpj">45.678.912/0001-33</td>
+                    
+                      <td class="col-email">marcos@mmassociados.com.br</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CNPJ A1</td>
+                    
+                      <td class="col-valor-venda">300,00</td>
+                    
+                      <td class="col-percentual">0,15</td>
+                    
+                      <td class="col-valor-comissao">45,00</td>
+                    
+                      <td class="col-pago-comissao">Sim</td>
+                    
+                      <td class="col-chave-pix">marcos@pix.com</td>
+                    
+                      <td class="col-data-vencimento">25/03/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Pix</td>
+                    
+                      <td class="col-banco">Santander</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Venda Direta</td>
+                    
+                      <td class="col-custo-cert">100,00</td>
+                    
+                      <td class="col-valor-liquido">200,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/3/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">12/03/2026</td>
+                    
+                      <td class="col-contador-parceiro">Ana Oliveira</td>
+                    
+                      <td class="col-contador-contabilidade">Oliveira Contábil</td>
+                    
+                      <td class="col-telefone1">(71) 98888-4444</td>
+                    
+                      <td class="col-cliente">Roberto Santos ME</td>
+                    
+                      <td class="col-cpf-cnpj">98.765.432/0001-00</td>
+                    
+                      <td class="col-email">ana@oliveiracontabil.com</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CPF A1</td>
+                    
+                      <td class="col-valor-venda">200,00</td>
+                    
+                      <td class="col-percentual">0,20</td>
+                    
+                      <td class="col-valor-comissao">40,00</td>
+                    
+                      <td class="col-pago-comissao">Não</td>
+                    
+                      <td class="col-chave-pix">ana@pix.com</td>
+                    
+                      <td class="col-data-vencimento">20/03/2026</td>
+                    
+                      <td class="col-pago-venda">Não</td>
+                    
+                      <td class="col-forma-pagamento">Cartão</td>
+                    
+                      <td class="col-banco">Bradesco</td>
+                    
+                      <td class="col-cert-feito">Não</td>
+                    
+                      <td class="col-venda">Parceria</td>
+                    
+                      <td class="col-custo-cert">80,00</td>
+                    
+                      <td class="col-valor-liquido">120,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/2/">Editar</a></td>
+                  </tr>
+                
+                  <tr>
+                    
+                      <td class="col-data-venda">10/03/2026</td>
+                    
+                      <td class="col-contador-parceiro">Carlos Silva</td>
+                    
+                      <td class="col-contador-contabilidade">Silva Contabilidade</td>
+                    
+                      <td class="col-telefone1">(11) 98888-2222</td>
+                    
+                      <td class="col-cliente">Loja do Trigo LTDA</td>
+                    
+                      <td class="col-cpf-cnpj">12.345.678/0001-99</td>
+                    
+                      <td class="col-email">carlos@silvacontabil.com.br</td>
+                    
+                      <td class="col-telefone2"></td>
+                    
+                      <td class="col-tipo-certificado">e-CNPJ A3</td>
+                    
+                      <td class="col-valor-venda">400,00</td>
+                    
+                      <td class="col-percentual">0,15</td>
+                    
+                      <td class="col-valor-comissao">60,00</td>
+                    
+                      <td class="col-pago-comissao">Sim</td>
+                    
+                      <td class="col-chave-pix">carlos@pix.com</td>
+                    
+                      <td class="col-data-vencimento">15/03/2026</td>
+                    
+                      <td class="col-pago-venda">Sim</td>
+                    
+                      <td class="col-forma-pagamento">Boleto</td>
+                    
+                      <td class="col-banco">Itaú</td>
+                    
+                      <td class="col-cert-feito">Sim</td>
+                    
+                      <td class="col-venda">Venda Direta</td>
+                    
+                      <td class="col-custo-cert">150,00</td>
+                    
+                      <td class="col-valor-liquido">250,00</td>
+                    
+                      <td class="col-data-registro">21/06/2026</td>
+                    
+                    <td><a class="btn btn-sm" href="/planilha/editar/1/">Editar</a></td>
+                  </tr>
+                
+              
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
+            <tbody id="clientes-tbody"></tbody>
+          </table>
+          <div id="clientes-empty" class="empty-state" style="display:none"><i class="ti ti-users"></i><p>Nenhum cliente encontrado.</p></div>
+        </div>
+      </div>
+
+      <!-- FUNIL KANBAN -->
+      <div id="view-funil" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Lead</button>
+          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste mentalmente os cards ou clique para editar o status</span>
+        </div>
+        <div class="kanban" id="kanban-board"></div>
+      </div>
+
+      <!-- RENOVAÇÕES -->
+      <div id="view-renovacoes" class="view">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-circle"></i> Vencidos ou Urgentes (&lt;30 dias)</h3>
+            <div class="alert-list" id="ren-urgente"></div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--warn)"><i class="ti ti-clock"></i> Vencendo em 30–90 dias</h3>
+            <div class="alert-list" id="ren-normal"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRIAGEM -->
+      <div id="view-triagem" class="view">
+        <div style="max-width:520px">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Use este guia para determinar o tipo de validação adequado para o cliente.</p>
+          <div class="triagem-card">
+            <div id="triagem-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARCEIROS -->
+      <div id="view-parceiros" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('parceiro')"><i class="ti ti-plus"></i>Novo Parceiro</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
+            <tbody id="parceiros-tbody"></tbody>
+          </table>
+          <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
+        </div>
+      </div>
+
+      <!-- TABELA DE PREÇOS -->
+      <div id="view-tabela" class="view">
+        <div class="section-actions">
+          <button class="btn btn-primary" onclick="openModal('preco')"><i class="ti ti-plus"></i>Novo Item</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
+            <tbody id="tabela-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Botão que puxa os dados do Drive -->
+<a href="/sincronizar/" class="btn btn-primary">
+    <i class="ti ti-refresh"></i> Sincronizar com Planilha do Drive
+</a>
+
+<a href="/sincronizar/" class="btn btn-primary">
+    🔄 Sincronizar com o Google Drive
+</a>
+
+<!-- Área para exibir mensagens de sucesso ou erro do Django -->
+
+
+<!-- MODAIS -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+
+<!-- MODAL DETALHE CLIENTE -->
+<div class="modal-overlay" id="detail-overlay" onclick="closeDetail(event)">
+  <div class="modal" id="detail-box" style="max-width:780px"></div>
+</div>
+
+<script src="/static/js/cert_manager.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.column-toggle').forEach(function(toggle) {
+      toggle.addEventListener('change', function() {
+        var col = this.dataset.col;
+        var show = this.checked;
+        document.querySelectorAll('.' + col).forEach(function(cell) {
+          cell.style.display = show ? '' : 'none';
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>
