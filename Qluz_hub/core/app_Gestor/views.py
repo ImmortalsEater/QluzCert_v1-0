@@ -1,8 +1,18 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import TemplateView
 from django.contrib import messages
-from .services import importar_planilha_do_drive, salvar_no_drive_desde_db
-from .models import Colaborador, PlanilhaRegistro
+from django.db import transaction
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.csrf import csrf_exempt
+import json
+from core.app.services import importar_planilha_do_drive
+from .services import save_state_to_drive
+from core.app.services import salvar_no_drive_desde_db
+from .models import Colaborador, AppState
+from core.app.models import PlanilhaRegistro
+import io
+import pandas as pd
+from django.http import HttpResponse
 
 
 def sincronizar_drive(request):
@@ -11,13 +21,15 @@ def sincronizar_drive(request):
     O ID do arquivo fica na URL: https://docs.google.com/spreadsheets/d/ID_AQUI/edit
     """
     ID_DA_PLANILHA_DO_CLIENTE = 'https://docs.google.com/spreadsheets/d/1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP6arYYeFIHLME/edit?gid=1382791784#gid=1382791784'
-    
+
     try:
-        total_importado = importar_planilha_do_drive(ID_DA_PLANILHA_DO_CLIENTE)
-        messages.success(request, f"Sucesso! {total_importado} parceiros sincronizados da planilha.")
+        with transaction.atomic():
+            PlanilhaRegistro.objects.all().delete()
+            total_importado = importar_planilha_do_drive(ID_DA_PLANILHA_DO_CLIENTE)
+        messages.success(request, f"Sucesso! Banco limpo e {total_importado} parceiros sincronizados da planilha.")
     except Exception as e:
         messages.error(request, f"Erro ao acessar o Google Drive: {str(e)}")
-        
+
     return redirect('dashboard')
 
 
@@ -80,6 +92,41 @@ class DashboardView(TemplateView):
             rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
 
         context['google_rows'] = rows
+        # Fornece clientes iniciais a partir do AppState salvo (app_Gestor)
+        try:
+            state = AppState.objects.filter(key='main').first()
+            initial_clientes = state.data.get('clientes', []) if state and isinstance(state.data, dict) else []
+        except Exception:
+            initial_clientes = []
+
+        try:
+            parceiros_dict = {}
+            for r in PlanilhaRegistro.objects.filter(contador_parceiro__gt=''):
+                key = (r.contador_parceiro or '').strip()
+                if not key:
+                    continue
+                if key not in parceiros_dict:
+                    parceiros_dict[key] = {
+                        'id': key,
+                        'nome': r.contador_parceiro,
+                        'tipo': 'Parceiro',
+                        'comissao': float(r.percentual_comissao) if r.percentual_comissao is not None else None,
+                        'contato': r.telefone1 or '',
+                        'email': r.email or '',
+                    }
+            initial_parceiros = list(parceiros_dict.values())
+        except Exception:
+            initial_parceiros = []
+
+        import json
+        try:
+            context['initial_clientes_json'] = json.dumps(initial_clientes, default=str)
+        except Exception:
+            context['initial_clientes_json'] = '[]'
+        try:
+            context['initial_parceiros_json'] = json.dumps(initial_parceiros, default=str)
+        except Exception:
+            context['initial_parceiros_json'] = '[]'
         return context
 
 
@@ -118,6 +165,95 @@ def editar_google_row(request, pk):
         return redirect('dashboard')
 
     return render(request, 'google_edit.html', {'registro': registro})
+
+
+@csrf_exempt
+def app_state(request):
+    if request.method == 'GET':
+        state = AppState.objects.filter(key='main').first()
+        data = state.data if state else {'clientes': [], 'parceiros': [], 'precos': []}
+        return JsonResponse(data)
+
+    if request.method == 'POST':
+        try:
+            payload = json.loads(request.body.decode('utf-8'))
+        except Exception:
+            return HttpResponseBadRequest('JSON inválido')
+
+        state, _ = AppState.objects.get_or_create(key='main')
+        state.data = payload
+        state.save()
+        return JsonResponse({'saved': True})
+
+    return HttpResponseBadRequest('Método não permitido')
+
+
+@csrf_exempt
+def app_state_drive(request):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('Método não permitido')
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except Exception:
+        return HttpResponseBadRequest('JSON inválido')
+
+    state, _ = AppState.objects.get_or_create(key='main')
+    state.data = payload
+    state.save()
+
+    SPREADSHEET_ID = '1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP6arYYeFIHLME'
+    success = False
+    try:
+        save_state_to_drive(payload, SPREADSHEET_ID)
+        success = True
+    except Exception as e:
+        messages.warning(request, f'Falha ao salvar na nuvem: {str(e)}')
+
+    return JsonResponse({'saved': True, 'drive': success})
+
+
+@csrf_exempt
+def app_state_download(request):
+    """Gera e retorna um arquivo Excel (.xlsx) com o estado enviado no body
+    ou com o estado salvo no banco (key='main') quando chamado via GET.
+    """
+    try:
+        if request.method == 'POST':
+            payload = json.loads(request.body.decode('utf-8'))
+        else:
+            state = AppState.objects.filter(key='main').first()
+            payload = state.data if state else {'clientes': [], 'parceiros': [], 'precos': []}
+
+        clientes = payload.get('clientes', []) or []
+        parceiros = payload.get('parceiros', []) or []
+        precos = payload.get('precos', []) or []
+
+        df_clientes = pd.DataFrame(clientes)
+        df_parceiros = pd.DataFrame(parceiros)
+        df_precos = pd.DataFrame(precos)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            if not df_clientes.empty:
+                df_clientes.to_excel(writer, sheet_name='Clientes', index=False)
+            else:
+                pd.DataFrame([{'info': 'Nenhum cliente'}]).to_excel(writer, sheet_name='Clientes', index=False)
+            if not df_parceiros.empty:
+                df_parceiros.to_excel(writer, sheet_name='Parceiros', index=False)
+            else:
+                pd.DataFrame([{'info': 'Nenhum parceiro'}]).to_excel(writer, sheet_name='Parceiros', index=False)
+            if not df_precos.empty:
+                df_precos.to_excel(writer, sheet_name='Precos', index=False)
+            else:
+                pd.DataFrame([{'info': 'Nenhum preco'}]).to_excel(writer, sheet_name='Precos', index=False)
+
+        output.seek(0)
+        resp = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        resp['Content-Disposition'] = 'attachment; filename="estado_clientes_parceiros.xlsx"'
+        return resp
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 class ParceirosView(TemplateView):

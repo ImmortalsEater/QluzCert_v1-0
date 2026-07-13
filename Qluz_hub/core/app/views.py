@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import TemplateView
 from django.contrib import messages
+from django.db import transaction
 from .services import importar_planilha_do_drive, salvar_no_drive_desde_db
 from .models import Colaborador, PlanilhaRegistro
 
@@ -11,13 +12,15 @@ def sincronizar_drive(request):
     O ID do arquivo fica na URL: https://docs.google.com/spreadsheets/d/ID_AQUI/edit
     """
     ID_DA_PLANILHA_DO_CLIENTE = 'https://docs.google.com/spreadsheets/d/1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP6arYYeFIHLME/edit?gid=1382791784#gid=1382791784'
-    
+
     try:
-        total_importado = importar_planilha_do_drive(ID_DA_PLANILHA_DO_CLIENTE)
-        messages.success(request, f"Sucesso! {total_importado} parceiros sincronizados da planilha.")
+        with transaction.atomic():
+            PlanilhaRegistro.objects.all().delete()
+            total_importado = importar_planilha_do_drive(ID_DA_PLANILHA_DO_CLIENTE)
+        messages.success(request, f"Sucesso! Banco limpo e {total_importado} parceiros sincronizados da planilha.")
     except Exception as e:
         messages.error(request, f"Erro ao acessar o Google Drive: {str(e)}")
-        
+
     return redirect('dashboard')
 
 class DashboardView(TemplateView):

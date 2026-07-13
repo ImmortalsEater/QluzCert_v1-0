@@ -9,6 +9,20 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
     <!-- Seu CSS customizado -->
     <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+    <style>
+      /* Toast simples */
+      .toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+      .toast{min-width:200px;padding:10px 14px;border-radius:8px;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.12);font-size:13px}
+      .toast.success{background:linear-gradient(90deg,#2ecc71,#27ae60)}
+      .toast.error{background:linear-gradient(90deg,#e74c3c,#c0392b)}
+      .toast.info{background:linear-gradient(90deg,#3498db,#2b86c6)}
+      /* Overlay / spinner */
+      @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+      #export-overlay{display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9998;align-items:center;justify-content:center}
+      .export-box{background:var(--surface);padding:18px;border-radius:10px;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:220px}
+      .export-box .spinner{width:48px;height:48px;border:5px solid #eee;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+      .export-text{font-weight:700;color:var(--muted);}
+    </style>
 </head>
 <body>
 
@@ -25,7 +39,7 @@
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
     <div class="nav-item" onclick="nav('triagem')"><i class="ti ti-route"></i>Triagem de Validação</div>
-    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    <div class="nav-item" onclick="location.href='{% url 'parceiros' %}'"><i class="ti ti-building"></i>Parceiros</div>
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
     <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
@@ -34,7 +48,17 @@
   <div id="main">
     <div class="topbar">
       <span class="topbar-title" id="page-title">Dashboard</span>
-      <div class="topbar-actions" id="topbar-actions"></div>
+      <div class="topbar-actions" id="topbar-actions">
+        <div class="save-dropdown" style="position:relative;display:inline-block">
+          <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
+          <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
+            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
+            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="save-cloud-btn">Salvar na nuvem</button>
+            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
+          </div>
+        </div>
+        <span id="save-status" style="margin-left:12px;font-size:13px;color:var(--muted)"></span>
+      </div>
     </div>
     <div id="content">
 
@@ -172,10 +196,6 @@
     <i class="ti ti-refresh"></i> Sincronizar com Planilha do Drive
 </a>
 
-<a href="{% url 'sincronizar_drive' %}" class="btn btn-primary">
-    🔄 Sincronizar com o Google Drive
-</a>
-
 <!-- Área para exibir mensagens de sucesso ou erro do Django -->
 {% if messages %}
     {% for message in messages %}
@@ -194,6 +214,18 @@
   <div class="modal" id="detail-box" style="max-width:780px"></div>
 </div>
 
+<!-- OVERLAY EXPORTAÇÃO -->
+<div id="export-overlay">
+  <div class="export-box">
+    <div class="spinner"></div>
+    <div class="export-text">Gerando arquivo, aguarde...</div>
+  </div>
+</div>
+
+<script>
+  window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
+  window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
+</script>
 <script src="{% static 'js/cert_manager.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {

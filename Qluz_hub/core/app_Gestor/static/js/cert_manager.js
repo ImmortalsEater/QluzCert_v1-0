@@ -3,8 +3,16 @@ const DB = {
   get(k){try{return JSON.parse(localStorage.getItem('crt_'+k)||'null')}catch{return null}},
   set(k,v){localStorage.setItem('crt_'+k,JSON.stringify(v))},
 };
-let clientes = DB.get('clientes')||[];
-let parceiros = DB.get('parceiros')||[];
+const storedClientes = DB.get('clientes');
+const storedParceiros = DB.get('parceiros');
+let clientes = (Array.isArray(storedClientes) && storedClientes.length)
+  ? storedClientes
+  : ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_CLIENTES) && window.INITIAL_CLIENTES.length>0)
+      ? window.INITIAL_CLIENTES.slice()
+      : []);
+let parceiros = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0)
+      ? window.INITIAL_PARCEIROS.slice()
+      : (Array.isArray(storedParceiros) ? storedParceiros : []));
 let precos = DB.get('precos')||[
   {id:1,tipo:'e-CPF A1',validade:'1 ano',preco:150},
   {id:2,tipo:'e-CPF A3',validade:'3 anos',preco:280},
@@ -22,6 +30,136 @@ const STATUS_COLORS = ['info','warn','purple','teal','success'];
 const KANBAN_COLORS = ['var(--info)','var(--warn)','var(--purple)','var(--teal)','var(--success)'];
 
 function save(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges()}
+
+function saveLocalOnly(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges();setStatus('Salvo localmente'); showToast('Salvo localmente','success')}
+
+async function saveServerState(){
+  saveLocalOnly();
+  try {
+    const response = await fetch('/app_state/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clientes, parceiros, precos})
+    });
+    if (!response.ok) throw new Error('Falha ao salvar no servidor');
+    const data = await response.json();
+    if (data.saved) { setStatus('Salvo no servidor'); showToast('Salvo no servidor','success'); }
+    else { setStatus('Falha ao salvar no servidor'); showToast('Falha ao salvar no servidor','error'); }
+  } catch (err) {
+    console.error(err);
+    setStatus('Erro ao salvar no servidor');
+    showToast('Erro ao salvar no servidor','error');
+  }
+}
+
+async function saveCloudState(){
+  saveLocalOnly();
+  try {
+    const response = await fetch('/app_state_drive/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clientes, parceiros, precos})
+    });
+    if (!response.ok) throw new Error('Falha ao salvar na nuvem');
+    const data = await response.json();
+    if (data.saved && data.drive) { setStatus('Salvo na nuvem'); showToast('Salvo na nuvem','success'); }
+    else if (data.saved) { setStatus('Salvo no servidor, falha na nuvem'); showToast('Salvo no servidor, falha na nuvem','info'); }
+    else { setStatus('Falha ao salvar na nuvem'); showToast('Falha ao salvar na nuvem','error'); }
+  } catch (err) {
+    console.error(err);
+    setStatus('Erro ao salvar na nuvem');
+    showToast('Erro ao salvar na nuvem','error');
+  }
+}
+
+function setStatus(message){
+  const status = document.getElementById('save-status');
+  if(status){ status.textContent = message; }
+}
+
+// Toast visual
+function _ensureToastContainer(){
+  let c = document.querySelector('.toast-container');
+  if(!c){ c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }
+  return c;
+}
+function showToast(message, type='info', timeout=3500){
+  try{
+    const container = _ensureToastContainer();
+    const t = document.createElement('div');
+    t.className = 'toast '+(type||'info');
+    t.textContent = message;
+    container.appendChild(t);
+    setTimeout(()=>{t.style.opacity='0';t.style.transform='translateY(6px)';}, timeout-400);
+    setTimeout(()=>{try{container.removeChild(t)}catch(e){}}, timeout);
+  }catch(e){console.warn('Toast failed',e)}
+}
+
+// Inicializa o menu de salvar (botão único com opções)
+function initSaveMenu(){
+  const mainBtn = document.getElementById('save-main-btn');
+  const menu = document.getElementById('save-menu');
+  const btnLocal = document.getElementById('save-local-btn');
+  const btnCloud = document.getElementById('save-cloud-btn');
+  if(!mainBtn || !menu) return;
+  mainBtn.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display = (menu.style.display==='block'?'none':'block'); });
+  // fechar ao clicar fora
+  document.addEventListener('click', function(){ if(menu) menu.style.display='none' });
+  if(btnLocal) btnLocal.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveLocalOnly(); });
+  if(btnCloud) btnCloud.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveCloudState(); });
+  const btnExport = document.getElementById('export-btn');
+  if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; exportState(); });
+  // data source bindings
+  const srcSelect = document.getElementById('data-source-select');
+  const syncBtn = document.getElementById('sync-server-btn');
+  if(srcSelect){ srcSelect.value = getDataSource(); srcSelect.addEventListener('change', function(){ setDataSource(this.value); }); }
+  if(syncBtn){ syncBtn.addEventListener('click', function(){ syncBtn.disabled=true; fetchServerState(true).finally(()=>{ syncBtn.disabled=false; }); }); }
+  renderDataSourceIndicator();
+}
+
+async function exportState(){
+  // envia estado atual para o servidor e força download do arquivo gerado
+  const payload = {clientes, parceiros, precos};
+  try{
+    const resp = await fetch('/app_state_download/', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    // show overlay while generating
+    showExportOverlay();
+    if(!resp.ok){
+      const txt = await resp.text();
+      showToast('Erro ao exportar: '+txt,'error');
+      return;
+    }
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'estado_clientes_parceiros.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    showToast('Arquivo preparado para download','success');
+  }catch(err){
+    console.error(err);
+    showToast('Erro ao exportar','error');
+  }
+  finally{
+    hideExportOverlay();
+  }
+}
+
+function showExportOverlay(){
+  const ov = document.getElementById('export-overlay');
+  if(ov) ov.style.display='flex';
+}
+function hideExportOverlay(){
+  const ov = document.getElementById('export-overlay');
+  if(ov) ov.style.display='none';
+}
 
 function renderTo(id, html){const el=document.getElementById(id); if(el) el.innerHTML=html}
 function statusIndex(status){return STATUS_LIST.indexOf(status)>=0?STATUS_LIST.indexOf(status):0}
@@ -57,6 +195,78 @@ function nav(page){
   document.getElementById('page-title').textContent=config.title;
   renderTo('topbar-actions','');
   config.render();
+  // renderiza os controles de salvar novamente e re-bind dos eventos
+  try{ renderSaveActions(); initSaveMenu(); }catch(e){}
+}
+
+function renderSaveActions(){
+  const html = `
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--muted)">Fonte:</label>
+        <select id="data-source-select" style="padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">
+          <option value="server">Servidor</option>
+          <option value="local">Local</option>
+        </select>
+        <button class="btn" id="sync-server-btn" style="padding:6px 10px">Sincronizar</button>
+        <span id="data-source-indicator" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div class="save-dropdown" style="position:relative;display:inline-block">
+        <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
+        <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
+          <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
+          <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="save-cloud-btn">Salvar na nuvem</button>
+          <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
+        </div>
+      </div>
+    </div>
+    <span id="save-status" style="margin-left:12px;font-size:13px;color:var(--muted)"></span>
+  `;
+  const ta = document.getElementById('topbar-actions');
+  if(ta) ta.innerHTML = html;
+}
+
+function getDataSource(){
+  const cached = DB.get('data_source');
+  if(cached) return cached;
+  if(typeof window !== 'undefined' && Array.isArray(window.INITIAL_CLIENTES) && window.INITIAL_CLIENTES.length>0) return 'server';
+  return 'local';
+}
+
+function setDataSource(src){
+  DB.set('data_source', src);
+  renderDataSourceIndicator();
+  if(src==='server') fetchServerState(true);
+}
+
+function renderDataSourceIndicator(){
+  const el = document.getElementById('data-source-indicator');
+  if(!el) return;
+  const src = getDataSource();
+  el.textContent = src==='server' ? 'Usando: servidor' : 'Usando: local';
+}
+
+async function fetchServerState(apply){
+  try{
+    const r = await fetch('/app_state/');
+    if(!r.ok) throw new Error('Falha ao obter estado do servidor');
+    const data = await r.json();
+    if(apply){
+      if (Array.isArray(data.clientes) && data.clientes.length) {
+        clientes = data.clientes;
+      }
+      if (Array.isArray(data.parceiros) && data.parceiros.length) {
+        parceiros = data.parceiros;
+      }
+      if (Array.isArray(data.precos) && data.precos.length) {
+        precos = data.precos;
+      }
+      save();
+      renderClientes(); renderParceiros(); renderTabela(); renderDashboard();
+      showToast('Estado do servidor aplicado','success');
+    }
+    return data;
+  }catch(e){ showToast('Erro ao obter estado do servidor','error'); console.error(e); return null }
 }
 
 function updateBadges(){
@@ -354,6 +564,15 @@ function renderParceiroModal(box){
     <button class="btn btn-primary" onclick="saveParceiro()"><i class="ti ti-device-floppy"></i> Salvar</button>
   </div>`;
 }
+// Inicializa comportamentos ao carregar o DOM
+document.addEventListener('DOMContentLoaded', function(){
+  try{ renderSaveActions(); initSaveMenu();
+    // se a fonte padrão for servidor e não há clientes locais, aplica estado do servidor
+    if(getDataSource()==='server' && (!clientes || clientes.length===0)){
+      fetchServerState(true);
+    }
+  }catch(e){}
+});
 
 function saveParceiro(){
   const nome=document.getElementById('p-nome').value.trim();
@@ -489,5 +708,32 @@ function openDetail(id){
 function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}
 
 // ==================== INIT ====================
-updateBadges();
-renderDashboard();
+async function loadAppState(){
+  try {
+    const response = await fetch('/app_state/');
+    if (response.ok){
+      const data = await response.json();
+      if (Array.isArray(data.clientes) && data.clientes.length) {
+        clientes = data.clientes;
+      }
+      if (Array.isArray(data.parceiros) && data.parceiros.length) {
+        parceiros = data.parceiros;
+      } else if (!parceiros.length && typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0) {
+        parceiros = window.INITIAL_PARCEIROS.slice();
+      }
+      if (Array.isArray(data.precos) && data.precos.length) {
+        precos = data.precos;
+      }
+      save();
+    }
+  } catch (err){
+    console.warn('Não foi possível carregar estado do servidor', err);
+  }
+  renderDashboard();
+  renderClientes();
+  renderParceiros();
+  renderTabela();
+  updateBadges();
+}
+
+loadAppState();

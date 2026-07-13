@@ -10,3 +10,12 @@ class Colaborador(models.Model):
 
     def __str__(self):
         return self.nome
+
+
+class AppState(models.Model):
+    key = models.CharField(max_length=50, unique=True)
+    data = models.JSONField(default=dict)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"AppState({self.key})"

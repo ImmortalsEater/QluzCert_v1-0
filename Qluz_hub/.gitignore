@@ -1,0 +1,22 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django local settings
+db.sqlite3
+
+# Google credentials
+credentials.json
+
+# Local development artifacts
+tmp.html
+copias_offline/
+*.xlsx
+scripts/latest_dashboard.html
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp

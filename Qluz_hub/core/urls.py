@@ -17,12 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-# Importa a Dashboard e a view de sincronização da app_Gestor quando disponível,
-# caso contrário usa a implementação da app principal.
-try:
-    from core.app_Gestor.views import DashboardView, sincronizar_drive, editar_google_row, ParceirosView
-except Exception:
-    from core.app.views import DashboardView, sincronizar_drive, editar_google_row, ParceirosView
+from core.app_Gestor.views import DashboardView, sincronizar_drive, editar_google_row, ParceirosView, app_state, app_state_drive, app_state_download
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -30,4 +25,7 @@ urlpatterns = [
     path('parceiros/', ParceirosView.as_view(), name='parceiros'),
     path('sincronizar/', sincronizar_drive, name='sincronizar_drive'),
     path('planilha/editar/<int:pk>/', editar_google_row, name='editar_google_row'),
+    path('app_state/', app_state, name='app_state'),
+    path('app_state_drive/', app_state_drive, name='app_state_drive'),
+    path('app_state_download/', app_state_download, name='app_state_download'),
 ]

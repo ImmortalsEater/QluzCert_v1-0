@@ -49,7 +49,8 @@ def sincronizar_processar_e_salvar_copias(file_id):
     fh.seek(0)
     
     # --- PARTE 2: TRATAMENTO DINÂMICO DO CABEÇALHO QLUZ ---
-    # Funções auxiliares para normalizar e identificar cabeçalho
+    import re
+
     def normalize_header(text):
         if text is None:
             return ''
@@ -57,135 +58,112 @@ def sincronizar_processar_e_salvar_copias(file_id):
         replacements = {
             'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'é': 'e', 'ê': 'e',
             'í': 'i', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ú': 'u', 'ç': 'c',
-            ' ': '', '-': '', '_': ''
         }
         for old, new in replacements.items():
             normalized = normalized.replace(old, new)
+        normalized = re.sub(r'[^a-z0-9]+', '', normalized)
         return normalized
 
-    nomes_possíveis = ['contadorparceiro', 'parceiro', 'nome', 'nomeparceiro', 'nomecontador', 'nomedonegocio']
-    emails_possíveis = ['email', 'email', 'e-mail']
+    def make_unique_headers(raw_headers):
+        seen = {}
+        unique_headers = []
+        for raw in raw_headers:
+            normalized = normalize_header(raw)
+            if not normalized:
+                normalized = 'col'
+            if normalized in seen:
+                seen[normalized] += 1
+                normalized = f"{normalized}_{seen[normalized]}"
+            else:
+                seen[normalized] = 1
+            unique_headers.append(normalized)
+        return unique_headers
 
-    # Lemos todas as abas do arquivo bruto sem assumir cabeçalho na linha 0
-    # (algumas planilhas podem ter título/abações e o sheet alvo não ser a primeira)
+    nomes_possiveis = ['contadorparceiro', 'parceiro', 'nome', 'nomeparceiro', 'nomecontador', 'nomedonegocio']
+    emails_possiveis = ['email', 'e-mail', 'enderecoemail', 'emailaddress']
+
     all_sheets = pd.read_excel(fh, sheet_name=None, header=None)
     df_cru = None
-    sheet_used_name = None
-    # Tentaremos detectar o cabeçalho em cada aba disponível
+    idx_cabecalho = None
     for sheet_name, sheet_df in all_sheets.items():
-        # faz uma cópia para análise
         tmp = sheet_df.copy()
-        idx_found = None
         for idx, row in tmp.iterrows():
             valores_linha = [normalize_header(val) for val in row.values if pd.notna(val)]
-
-            # Verifica se tem email
-            has_email = any(any(email_term in val for email_term in ['email', 'e-mail']) for val in valores_linha)
-
-            # Verifica se tem nome/parceiro
-            has_name = any(nome_term in val for nome_term in nomes_possíveis for val in valores_linha)
-
+            has_email = any('email' in val for val in valores_linha)
+            has_name = any(any(term in val for term in nomes_possiveis) for val in valores_linha)
             if (has_email and has_name) or (has_email and len(valores_linha) >= 3):
-                idx_found = idx
+                df_cru = tmp
+                idx_cabecalho = idx
                 break
-
-        if idx_found is not None:
-            df_cru = tmp
-            idx_cabecalho = idx_found
-            sheet_used_name = sheet_name
+        if df_cru is not None:
             break
 
-    # Se não encontrou em nenhuma aba, usar a primeira aba como fallback (para debug a linha 0)
     if df_cru is None:
-        # pega a primeira aba para mensagem de debug
-        first_sheet = next(iter(all_sheets.values()))
-        df_cru = first_sheet
-        idx_cabecalho = None
+        df_cru = next(iter(all_sheets.values()))
+        idx_cabecalho = 0
 
-    idx_cabecalho = None
-    
-    for idx, row in df_cru.iterrows():
-        valores_linha = [normalize_header(val) for val in row.values if pd.notna(val)]
-        
-        # Verifica se tem email
-        has_email = any(any(email_term in val for email_term in emails_possíveis) for val in valores_linha)
-        
-        # Verifica se tem nome/parceiro
-        has_name = any(nome_term in val for nome_term in nomes_possíveis for val in valores_linha)
-        
-        # Também aceita se tiver apenas email + alguma coluna que não seja vazia
-        if (has_email and has_name) or (has_email and len(valores_linha) >= 3):
-            idx_cabecalho = idx
-            break
-
-    if idx_cabecalho is None:
-        # Se não encontrou, mostra as primeiras 10 linhas para debugging
-        print(f"\n DEBUG: Não foi encontrado cabeçalho. Primeiras 10 linhas da planilha:")
-        for i in range(min(10, len(df_cru))):
-            print(f"Linha {i}: {list(df_cru.iloc[i].values)}")
-        raise Exception(
-            "Não foi possível localizar as colunas de cabeçalho esperadas na planilha. "
-            "Verifique se existem colunas como 'Nome', 'E-mail' ou 'Contador/Parceiro'. "
-            "Verifique o console para debug das primeiras linhas."
-        )
-
-
-    df_cru.columns = df_cru.iloc[idx_cabecalho]
+    headers = df_cru.iloc[idx_cabecalho].tolist()
+    normalized_headers = make_unique_headers(headers)
     df = df_cru.iloc[idx_cabecalho + 1:].reset_index(drop=True)
-    
+    df.columns = normalized_headers
+
     # --- TRATAMENTO DE COLUNAS DUPLICADAS ---
-    # Como existem duas colunas chamadas "Pago", o Pandas por padrão as renomeia para tornar únicas.
-    # Vamos renomear manualmente a lista de colunas para sabermos exatamente qual é qual.
     novas_colunas = []
     ja_viu_pago = False
-    
     for col in df.columns:
-        col_nome = str(col).strip()
-        if col_nome == 'Pago':
+        if col == 'pago':
             if not ja_viu_pago:
-                novas_colunas.append('Pago_Comissao') # O primeiro 'Pago' é da comissão
+                novas_colunas.append('pago_comissao')
                 ja_viu_pago = True
             else:
-                novas_colunas.append('Pago_Venda')    # O segundo 'Pago' é da venda
+                novas_colunas.append('pago_venda')
+        elif col == 'pago_2':
+            novas_colunas.append('pago_venda')
         else:
-            novas_colunas.append(col_nome)
-            
+            novas_colunas.append(col)
     df.columns = novas_colunas
 
     # --- PARTE 3: ATUALIZAR O BANCO DE DADOS DJANGO (PlanilhaRegistro) ---
     contagem_novos = 0
     for _, linha in df.iterrows():
-        # Cria um dicionário com os valores das colunas (usando nomes brutos)
-        row = {str(k).strip(): (v if pd.notna(v) else None) for k, v in linha.items()}
+        # Cria um dicionário com os valores das colunas normalizadas
+        row = {normalize_header(str(k)): (v if pd.notna(v) else None) for k, v in linha.items()}
 
         def get(keys, default=None):
-            for k in keys:
-                if k in row and row[k] is not None:
-                    return row[k]
+            normalized_keys = [normalize_header(k) for k in keys]
+            for key in normalized_keys:
+                if key in row and row[key] is not None:
+                    return row[key]
+            for header, value in row.items():
+                if value is None:
+                    continue
+                normalized_header = normalize_header(header)
+                if any(key in normalized_header for key in normalized_keys):
+                    return value
             return default
 
         # Mapear campos conforme solicitado
         data_venda_raw = get(['Data da Venda', 'Data Venda', 'Data'], None)
-        cliente = get(['Cliente', 'Nome', 'Contador/Parceiro', 'Parceiro'], '')
+        cliente = get(['Cliente', 'Nome', 'Contador/Parceiro', 'Parceiro', 'Cliente'], '')
         cpf = get(['CPF/CNPJ', 'CPF', 'CNPJ'], '')
-        email = get(['email', 'E-mail', 'Email'], '')
-        contador_parceiro = get(['Contador/Parceiro', 'Contador/Contabilidade'], '')
-        contador_contabilidade = get(['Contador/Contabilidade'], '')
-        telefone1 = get(['Telefone', 'Telefone1'], '')
-        telefone2 = get(['Telefone '], '')
-        tipo_certificado = get(['Tipo de Certificado', 'Tipo Certificado'], '')
-        valor_venda_raw = get(['Valor da Venda (R$)', 'Valor da Venda', 'Valor Venda'], None)
-        percentual_raw = get(['Percentual de Comissão (%)', 'Percentual de Comissão', 'Percentual Comissão'], None)
-        valor_comissao_raw = get(['Valor da Comissão (R$)', 'Valor da Comissao', 'Valor Comissão'], None)
-        pago_raw = get(['Pago_Comissao', 'Pago_Comissao ', 'Pago', 'Paga'], None)
-        chave_pix = get(['Chave PIX', 'Chave PIX '], '')
-        data_vencimento_raw = get(['Data de Vencimento', 'Data Vencimento'], None)
-        pago_venda_raw = get(['Pago_Venda', 'Pago_venda', 'Pago '], None)
-        forma_pagamento = get(['Forma de pagamento', 'Forma de Pagamento'], '')
-        banco = get(['Banco'], '')
-        certificado_feito = get(['Certfificado Feito', 'Certificado Feito'], '')
-        venda = get(['Venda'], '')
-        custo_certificado_raw = get(['Custo do Certificado', 'Custo Certificado'], None)
+        email = get(['email', 'E-mail', 'Email', 'E mail', 'emailaddress', 'enderecoemail'], '')
+        contador_parceiro = get(['Contador/Parceiro', 'Contador/Contabilidade', 'Contador Parceiro'], '')
+        contador_contabilidade = get(['Contador/Contabilidade', 'Contador Contabilidade'], '')
+        telefone1 = get(['Telefone', 'Telefone1', 'Celular', 'Celular1'], '')
+        telefone2 = get(['Telefone2', 'Telefone 2', 'Celular2', 'Telefone 2'], '')
+        tipo_certificado = get(['Tipo de Certificado', 'Tipo Certificado', 'Tipo Certificado'], '')
+        valor_venda_raw = get(['Valor da Venda (R$)', 'Valor da Venda', 'Valor Venda', 'Valor', 'Venda'], None)
+        percentual_raw = get(['Percentual de Comissão (%)', 'Percentual de Comissão', 'Percentual Comissão', 'Percentual'], None)
+        valor_comissao_raw = get(['Valor da Comissão (R$)', 'Valor da Comissao', 'Valor Comissão', 'Comissao'], None)
+        pago_raw = get(['Pago_Comissao', 'Pago', 'Paga', 'Pago Comissão', 'Pago_Comissao '], None)
+        chave_pix = get(['Chave PIX', 'Pix', 'Chave'], '')
+        data_vencimento_raw = get(['Data de Vencimento', 'Data Vencimento', 'Vencimento'], None)
+        pago_venda_raw = get(['Pago_Venda', 'Pago Venda', 'Pago_venda', 'Pagamento'], None)
+        forma_pagamento = get(['Forma de pagamento', 'Forma de Pagamento', 'Meio de Pagamento'], '')
+        banco = get(['Banco', 'Conta', 'Banco/Conta'], '')
+        certificado_feito = get(['Certfificado Feito', 'Certificado Feito', 'Certificado'], '')
+        venda = get(['Venda', 'Negocio', 'Transacao'], '')
+        custo_certificado_raw = get(['Custo do Certificado', 'Custo Certificado', 'Custo'], None)
         valor_liquido_raw = get(['Valor Liquido', 'Valor Líquido', 'Valor Liquido '], None)
 
         # Conversões
@@ -224,41 +202,50 @@ def sincronizar_processar_e_salvar_copias(file_id):
             if val is None:
                 return False
             s = str(val).strip().lower()
-            return s in ['sim', 'true', '1', 'pago', 'yes']
+            return s in ['sim', 'true', '1', 'pago', 'yes', 'ok', 's']
 
         pago_comissao = bool_from(pago_raw)
         pago_venda = bool_from(pago_venda_raw)
 
-        # Identifica por email + cliente
-        if not email and not cliente:
-            # ignora linhas sem identificador
+        # Identifica por email, cliente ou contador/parceiro
+        if not email and not cliente and not contador_parceiro:
+            # ignora linhas sem identificador útil
             continue
 
+        lookup = {}
+        if email:
+            lookup['email'] = str(email).strip()
+        elif cliente:
+            lookup['cliente'] = str(cliente).strip()
+        else:
+            lookup['contador_parceiro'] = str(contador_parceiro).strip()
+
         registro, criado = PlanilhaRegistro.objects.update_or_create(
-            email=str(email).strip() if email else None,
-            cliente=str(cliente).strip() if cliente else '',
             defaults={
                 'data_venda': data_venda,
-                'contador_parceiro': str(contador_parceiro) if contador_parceiro else '',
-                'contador_contabilidade': str(contador_contabilidade) if contador_contabilidade else '',
-                'telefone1': str(telefone1) if telefone1 else '',
-                'cpf_cnpj': str(cpf) if cpf else '',
-                'telefone2': str(telefone2) if telefone2 else '',
-                'tipo_certificado': str(tipo_certificado) if tipo_certificado else '',
+                'contador_parceiro': str(contador_parceiro).strip() if contador_parceiro else '',
+                'contador_contabilidade': str(contador_contabilidade).strip() if contador_contabilidade else '',
+                'telefone1': str(telefone1).strip() if telefone1 else '',
+                'cpf_cnpj': str(cpf).strip() if cpf else '',
+                'telefone2': str(telefone2).strip() if telefone2 else '',
+                'tipo_certificado': str(tipo_certificado).strip() if tipo_certificado else '',
+                'cliente': str(cliente).strip() if cliente else '',
+                'email': str(email).strip() if email else '',
                 'valor_venda': valor_venda,
                 'percentual_comissao': percentual_comissao,
                 'valor_comissao': valor_comissao,
                 'pago_comissao': pago_comissao,
-                'chave_pix': str(chave_pix) if chave_pix else '',
+                'chave_pix': str(chave_pix).strip() if chave_pix else '',
                 'data_vencimento': data_vencimento,
                 'pago_venda': pago_venda,
-                'forma_pagamento': str(forma_pagamento) if forma_pagamento else '',
-                'banco': str(banco) if banco else '',
-                'certificado_feito': str(certificado_feito) if certificado_feito else '',
-                'venda': str(venda) if venda else '',
+                'forma_pagamento': str(forma_pagamento).strip() if forma_pagamento else '',
+                'banco': str(banco).strip() if banco else '',
+                'certificado_feito': str(certificado_feito).strip() if certificado_feito else '',
+                'venda': str(venda).strip() if venda else '',
                 'custo_certificado': custo_certificado,
                 'valor_liquido': valor_liquido,
-            }
+            },
+            **lookup
         )
         if criado:
             contagem_novos += 1

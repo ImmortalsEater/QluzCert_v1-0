@@ -49,8 +49,7 @@ def sincronizar_processar_e_salvar_copias(file_id):
     fh.seek(0)
     
     # --- PARTE 2: TRATAMENTO DINÂMICO DO CABEÇALHO QLUZ ---
-    # Lemos o arquivo bruto sem assumir cabeçalho na linha 0 (por causa do título de data)
-    df_cru = pd.read_excel(fh, header=None)
+    import re
 
     def normalize_header(text):
         if text is None:
@@ -59,108 +58,104 @@ def sincronizar_processar_e_salvar_copias(file_id):
         replacements = {
             'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'é': 'e', 'ê': 'e',
             'í': 'i', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ú': 'u', 'ç': 'c',
-            ' ': '', '-': '', '_': ''
         }
         for old, new in replacements.items():
             normalized = normalized.replace(old, new)
+        normalized = re.sub(r'[^a-z0-9]+', '', normalized)
         return normalized
 
+    def make_unique_headers(raw_headers):
+        seen = {}
+        unique_headers = []
+        for raw in raw_headers:
+            normalized = normalize_header(raw)
+            if not normalized:
+                normalized = 'col'
+            if normalized in seen:
+                seen[normalized] += 1
+                normalized = f"{normalized}_{seen[normalized]}"
+            else:
+                seen[normalized] = 1
+            unique_headers.append(normalized)
+        return unique_headers
+
+    nomes_possiveis = ['contadorparceiro', 'parceiro', 'nome', 'nomeparceiro', 'nomecontador', 'nomedonegocio']
+    emails_possiveis = ['email', 'e-mail', 'enderecoemail', 'emailaddress']
+
+    all_sheets = pd.read_excel(fh, sheet_name=None, header=None)
+    df_cru = None
     idx_cabecalho = None
-    nomes_possíveis = ['contadorparceiro', 'parceiro', 'nome', 'nomeparceiro', 'nomecontador', 'nomedonegocio']
-    emails_possíveis = ['email', 'email', 'e-mail']
-    
-    for idx, row in df_cru.iterrows():
-        valores_linha = [normalize_header(val) for val in row.values if pd.notna(val)]
-        
-        # Verifica se tem email
-        has_email = any(any(email_term in val for email_term in emails_possíveis) for val in valores_linha)
-        
-        # Verifica se tem nome/parceiro
-        has_name = any(nome_term in val for nome_term in nomes_possíveis for val in valores_linha)
-        
-        # Também aceita se tiver apenas email + alguma coluna que não seja vazia
-        if (has_email and has_name) or (has_email and len(valores_linha) >= 3):
-            idx_cabecalho = idx
+    for sheet_name, sheet_df in all_sheets.items():
+        tmp = sheet_df.copy()
+        for idx, row in tmp.iterrows():
+            valores_linha = [normalize_header(val) for val in row.values if pd.notna(val)]
+            has_email = any('email' in val for val in valores_linha)
+            has_name = any(any(term in val for term in nomes_possiveis) for val in valores_linha)
+            if (has_email and has_name) or (has_email and len(valores_linha) >= 3):
+                df_cru = tmp
+                idx_cabecalho = idx
+                break
+        if df_cru is not None:
             break
 
-    if idx_cabecalho is None:
-        # Se não encontrou, mostra as primeiras 10 linhas para debugging
-        print(f"\n DEBUG: Não foi encontrado cabeçalho. Primeiras 10 linhas da planilha:")
-        for i in range(min(10, len(df_cru))):
-            print(f"Linha {i}: {list(df_cru.iloc[i].values)}")
-        raise Exception(
-            "Não foi possível localizar as colunas de cabeçalho esperadas na planilha. "
-            "Verifique se existem colunas como 'Nome', 'E-mail' ou 'Contador/Parceiro'. "
-            "Verifique o console para debug das primeiras linhas."
-        )
+    if df_cru is None:
+        df_cru = next(iter(all_sheets.values()))
+        idx_cabecalho = 0
 
-    df_cru.columns = df_cru.iloc[idx_cabecalho]
+    headers = df_cru.iloc[idx_cabecalho].tolist()
     df = df_cru.iloc[idx_cabecalho + 1:].reset_index(drop=True)
-    
+    df.columns = make_unique_headers(headers)
+
     # --- TRATAMENTO DE COLUNAS DUPLICADAS ---
     novas_colunas = []
     ja_viu_pago = False
-    
     for col in df.columns:
-        col_nome = str(col).strip()
-        if col_nome == 'Pago':
+        if col == 'pago':
             if not ja_viu_pago:
-                novas_colunas.append('Pago_Comissao')
+                novas_colunas.append('pago_comissao')
                 ja_viu_pago = True
             else:
-                novas_colunas.append('Pago_Venda')
+                novas_colunas.append('pago_venda')
+        elif col == 'pago_2':
+            novas_colunas.append('pago_venda')
         else:
-            novas_colunas.append(col_nome)
-            
+            novas_colunas.append(col)
     df.columns = novas_colunas
 
     # --- PARTE 3: ATUALIZAR O BANCO DE DADOS DJANGO ---
     contagem_novos = 0
     for _, linha in df.iterrows():
-        # Tenta encontrar a coluna de nome/parceiro em várias variações
-        possiveis_parceiros = [
-            linha.get('Contador/Parceiro'),
-            linha.get('Contador/Parceiro '),
-            linha.get('Parceiro'),
-            linha.get('Nome'),
-            linha.get('Nome do Parceiro'),
-            linha.get('Nome do Contador'),
-            linha.get('Negócio'),
-            linha.get('Empresa'),
-            linha.get('Contato'),
-        ]
-        parceiro = next((x for x in possiveis_parceiros if pd.notna(x) and str(x).strip()), None)
+        row = {normalize_header(str(k)): (v if pd.notna(v) else None) for k, v in linha.items()}
 
-        # Tenta encontrar a coluna de email em várias variações
-        possiveis_emails = [
-            linha.get('E-mail'),
-            linha.get('Email'),
-            linha.get('E mail'),
-            linha.get('E-Mail'),
-            linha.get('email'),
-        ]
-        email = next((x for x in possiveis_emails if pd.notna(x) and str(x).strip()), None)
+        def get_value(keys, default=None):
+            normalized_keys = [normalize_header(key) for key in keys]
+            for key in normalized_keys:
+                if key in row and row[key] is not None:
+                    return row[key]
+            for header, value in row.items():
+                if value is None:
+                    continue
+                normalized_header = normalize_header(header)
+                if any(norm_key in normalized_header for norm_key in normalized_keys):
+                    return value
+            return default
 
-        # Tenta encontrar coluna de comissão
-        possiveis_comissao = [
-            linha.get('Valor da Comissão (R$)'),
-            linha.get('Comissão'),
-            linha.get('Valor Comissão'),
-            linha.get('Valor da Comissao'),
-            linha.get('Comissao'),
-        ]
-        valor_comissao_cru = next((x for x in possiveis_comissao if pd.notna(x)), None)
-        
-        # Tenta encontrar coluna de status de pagamento
-        possiveis_pago = [
-            linha.get('Pago_Comissao'),
-            linha.get('Pago'),
-            linha.get('Paga'),
-            linha.get('Status'),
-            linha.get('Status Pagamento'),
-            linha.get('Pagamento'),
-        ]
-        status_pago_cru = next((x for x in possiveis_pago if pd.notna(x)), None)
+        parceiro = get_value([
+            'contadorparceiro', 'parceiro', 'nome', 'nomeparceiro', 'nomecontador', 'nomedonegocio',
+            'nomecompleto', 'empresa', 'contato', 'negocio'
+        ], None)
+
+        email = get_value([
+            'email', 'emailaddress', 'enderecoemail', 'e-mail', 'seuemail'
+        ], None)
+
+        valor_comissao_cru = get_value([
+            'valordacomissao', 'comissao', 'valorcomissao', 'valor dacomissao', 'valorcomissao', 'valorcomissaor' 
+        ], None)
+
+        status_pago_cru = get_value([
+            'pagocomissao', 'pagovenda', 'pago', 'paga', 'status', 'statuspagamento', 'pagamento', 'pagocomissao', 'pago_venda'
+        ], None)
 
         # Ignora linhas totalmente vazias ou de totais no fim da planilha
         if not parceiro or not email:
@@ -222,6 +217,50 @@ def sincronizar_processar_e_salvar_copias(file_id):
 
     return contagem_novos
 
+def save_state_to_drive(state, file_id):
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    creds_path = os.path.join(project_root, 'credentials.json')
+    if not os.path.exists(creds_path):
+        raise FileNotFoundError('credentials.json não encontrado para autenticação Google.')
+
+    creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+    drive_service = build('drive', 'v3', credentials=creds)
+
+    clientes = state.get('clientes', []) or []
+    parceiros = state.get('parceiros', []) or []
+    precos = state.get('precos', []) or []
+
+    df_clientes = pd.DataFrame(clientes)
+    df_parceiros = pd.DataFrame(parceiros)
+    df_precos = pd.DataFrame(precos)
+
+    pasta_offline = os.path.join(project_root, 'copias_offline')
+    if not os.path.exists(pasta_offline):
+        os.makedirs(pasta_offline)
+
+    caminho_arquivo_local = os.path.join(pasta_offline, 'estado_clientes_parceiros.xlsx')
+    with pd.ExcelWriter(caminho_arquivo_local, engine='openpyxl') as writer:
+        if not df_clientes.empty:
+            df_clientes.to_excel(writer, sheet_name='Clientes', index=False)
+        else:
+            pd.DataFrame([{'info': 'Nenhum cliente'}]).to_excel(writer, sheet_name='Clientes', index=False)
+        if not df_parceiros.empty:
+            df_parceiros.to_excel(writer, sheet_name='Parceiros', index=False)
+        else:
+            pd.DataFrame([{'info': 'Nenhum parceiro'}]).to_excel(writer, sheet_name='Parceiros', index=False)
+        if not df_precos.empty:
+            df_precos.to_excel(writer, sheet_name='Precos', index=False)
+        else:
+            pd.DataFrame([{'info': 'Nenhum preco'}]).to_excel(writer, sheet_name='Precos', index=False)
+
+    media = MediaFileUpload(
+        caminho_arquivo_local,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        resumable=True
+    )
+    drive_service.files().update(fileId=file_id, media_body=media).execute()
+    return True
 
 def _extract_drive_file_id(file_url_or_id):
     if not file_url_or_id:

@@ -25,7 +25,7 @@
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
     <div class="nav-item" onclick="nav('triagem')"><i class="ti ti-route"></i>Triagem de Validação</div>
-    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    <div class="nav-item" onclick="location.href='{% url 'parceiros' %}'"><i class="ti ti-building"></i>Parceiros</div>
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
     <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
@@ -81,11 +81,9 @@
               {% if google_rows %}
                 {% for row in google_rows %}
                   <tr>
-                    <td class="col-nome">{{ row.nome }}</td>
-                    <td class="col-email">{{ row.email }}</td>
-                    <td class="col-valor-comissao">R$ {{ row.valor_comissao }}</td>
-                    <td class="col-comissao-paga">{{ row.comissao_paga }}</td>
-                    <td class="col-data-registro">{{ row.data_registro|date:"d/m/Y H:i" }}</td>
+                    {% for cell in row.cells %}
+                      <td class="{{ cell.class }}">{{ cell.value }}</td>
+                    {% endfor %}
                     <td><a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a></td>
                   </tr>
                 {% endfor %}
@@ -172,10 +170,6 @@
 <!-- Botão que puxa os dados do Drive -->
 <a href="{% url 'sincronizar_drive' %}" class="btn btn-primary">
     <i class="ti ti-refresh"></i> Sincronizar com Planilha do Drive
-</a>
-
-<a href="{% url 'sincronizar_drive' %}" class="btn btn-primary">
-    🔄 Sincronizar com o Google Drive
 </a>
 
 <!-- Área para exibir mensagens de sucesso ou erro do Django -->
